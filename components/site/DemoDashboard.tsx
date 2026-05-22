@@ -35,7 +35,7 @@ import {
   X,
 } from "lucide-react";
 import Image from "next/image";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { GroupTreeCombobox } from "@/components/demo-notes/group-tree-combobox";
 import { NoteGraph } from "@/components/demo-notes/note-graph";
 import { NoteList } from "@/components/demo-notes/note-list";
@@ -64,16 +64,16 @@ import type {
 import { classColor } from "@/lib/bookmark-color";
 import { buildDescendantIdMap, buildPathLabelMap } from "@/lib/note-group-tree";
 import {
-  ASSISTANT_TRANSCRIPT,
   CALENDAR_DAYS,
-  CALENDAR_EVENTS,
   DEMO_MODULES,
-  EMAILS,
-  KANBAN,
-  PEOPLE,
-  RESOURCES,
+  PERSONA_SEEDS,
+  PERSONAS,
+  type AssistantMessageSeed,
+  type DemoModule,
   type ModuleKey,
-} from "@/lib/marketing";
+  type PersonaKey,
+  type PersonaSeed,
+} from "@/lib/persona-data";
 import { cn } from "@/lib/utils";
 import { Reveal } from "./Reveal";
 
@@ -98,123 +98,7 @@ type TemporalDemoData = ReturnType<typeof buildTemporalDemoData>;
 
 const now = "2026-05-22T08:30:00.000Z";
 
-const initialGroups: INoteGroup[] = [
-  group("g-infra", "Infrastructure", null, "#647560"),
-  group("g-local", "Local-first", "g-infra", "#a1bc98"),
-  group("g-ops", "Operations", "g-infra", "#d4a373"),
-  group("g-research", "Research", null, "#9cc5c9"),
-  group("g-writing", "Writing", null, "#c9b8d4"),
-];
-
-const initialNotes: INote[] = [
-  note({
-    id: "n-1",
-    title: "Local embeddings rollout",
-    content: `# Local embeddings rollout
-
-Helm keeps note bodies local and only ships metadata when a remote model needs context.
-
-## Decisions
-
-- Use the desktop worker for embedding generation.
-- Cache vectors by content hash.
-- Keep semantic grouping as an explicit action.
-
-## Open questions
-
-Should stale notes appear in the graph as dimmed nodes or a separate queue?`,
-    description:
-      "Plan for local embeddings, cache invalidation, and the visible states in the graph.",
-    tags: ["privacy", "embeddings", "desktop"],
-    groupIds: ["g-local", "g-research"],
-    className: "plan",
-    updatedAt: "2026-05-22T08:12:00.000Z",
-  }),
-  note({
-    id: "n-2",
-    title: "Email triage failure modes",
-    content: `# Email triage failure modes
-
-The assistant can draft actions, but high-risk work stays behind approval.
-
-| Risk | Guardrail |
-| --- | --- |
-| Wrong recipient | Show account and recipient before send |
-| Calendar conflict | Preview target slot |
-| Task spam | Merge similar task suggestions |
-
-Related to the module registry because disabled modules remove their tools.`,
-    tags: ["triage", "assistant"],
-    groupIds: ["g-ops"],
-    className: "memo",
-    updatedAt: "2026-05-21T18:20:00.000Z",
-  }),
-  note({
-    id: "n-3",
-    title: "Markdown renderer checklist",
-    content: `# Markdown renderer checklist
-
-- [x] Tables
-- [x] Code highlighting
-- [x] Math blocks
-- [ ] PDF parity
-
-\`\`\`ts
-const preview = renderMarkdown(note.content);
-\`\`\`
-
-Inline math works too: $a^2 + b^2 = c^2$.`,
-    tags: ["markdown", "editor"],
-    groupIds: ["g-writing", "g-local"],
-    className: "checklist",
-    updatedAt: "2026-05-20T12:05:00.000Z",
-  }),
-  note({
-    id: "n-4",
-    title: "Tauri window polish",
-    content: `# Tauri window polish
-
-Small desktop affordances that make the app feel native:
-
-1. Title bar actions match the OS target.
-2. Downloads remember the last folder.
-3. External links open outside the webview.
-
-The marketing demo should show the real editing surface instead of a static card.`,
-    tags: ["desktop", "ux"],
-    groupIds: ["g-local"],
-    className: "implementation",
-    updatedAt: "2026-05-19T09:45:00.000Z",
-  }),
-  note({
-    id: "n-5",
-    title: "Module registry contract",
-    content: `# Module registry contract
-
-Every enabled module contributes:
-
-- navigation entries
-- command palette actions
-- assistant tools
-- billing scope
-
-Disabling a module should remove the entire surface before the next model request.`,
-    tags: ["modules", "assistant"],
-    groupIds: ["g-ops", "g-research"],
-    className: "architecture",
-    updatedAt: "2026-05-18T14:35:00.000Z",
-  }),
-];
-
-const initialEdges: INoteEdge[] = [
-  edge("e-1", "n-1", "n-3", 0.82),
-  edge("e-2", "n-1", "n-4", 0.72),
-  edge("e-3", "n-2", "n-5", 0.8),
-  edge("e-4", "n-3", "n-4", 0.66),
-  edge("e-5", "n-1", "n-5", 0.64),
-];
-
-function buildTemporalDemoData(anchor: Date) {
+function buildTemporalDemoData(anchor: Date, seed: PersonaSeed) {
   const dayMs = 24 * 60 * 60 * 1000;
   const atDay = (offset: number, hour = 9, minute = 0) => {
     const date = new Date(anchor);
@@ -239,15 +123,15 @@ function buildTemporalDemoData(anchor: Date) {
   };
 
   const noteOffsets = [-1, -2, -4, -8, -13];
-  const notes = initialNotes.map((note, index) => ({
+  const notes = seed.notes.map((note, index) => ({
     ...note,
-    createdAt: iso(noteOffsets[index] - 3, 10),
-    updatedAt: iso(noteOffsets[index], 14),
+    createdAt: iso((noteOffsets[index] ?? -index - 1) - 3, 10),
+    updatedAt: iso(noteOffsets[index] ?? -index - 1, 14),
   }));
 
   const dueOffsets = [1, 3, 0, 0, 2, -1, -5];
   let dueIndex = 0;
-  const kanban = KANBAN.map((column) => ({
+  const kanban = seed.kanban.map((column) => ({
     ...column,
     cards: column.cards.map((card) => {
       const offset = dueOffsets[dueIndex++ % dueOffsets.length];
@@ -259,8 +143,8 @@ function buildTemporalDemoData(anchor: Date) {
   }));
 
   const calendarOffsets = [-2, -1, 0, 1, 2, 4, 7, 12];
-  const calendarEvents = CALENDAR_EVENTS.map((event, index) => {
-    const date = atDay(calendarOffsets[index], event.start);
+  const calendarEvents = seed.calendarEvents.map((event, index) => {
+    const date = atDay(calendarOffsets[index] ?? index, event.start);
     return {
       ...event,
       date: date.getDate(),
@@ -271,8 +155,8 @@ function buildTemporalDemoData(anchor: Date) {
   });
 
   const birthdayOffsets = [-42, -12, 8, 19, 36, 54];
-  const people = PEOPLE.map((person, index) => {
-    const birthday = atDay(birthdayOffsets[index]);
+  const people = seed.people.map((person, index) => {
+    const birthday = atDay(birthdayOffsets[index] ?? index * 7);
     return {
       ...person,
       last: rel(atDay(-Math.max(0, index * 3 + 1))),
@@ -290,55 +174,77 @@ function buildTemporalDemoData(anchor: Date) {
   });
 
   const emailOffsets = [0, -1, -3];
-  const emails = EMAILS.map((email, index) => ({
+  const emails = seed.emails.map((email, index) => ({
     ...email,
-    received: rel(atDay(emailOffsets[index], 11 + index)),
+    received: rel(atDay(emailOffsets[index] ?? -index, 11 + index)),
+  }));
+  const personalOffsets = [-1, -4, -6];
+  const personalHours = [19, 8, 10];
+  const personalEmails = seed.personalEmails.map((email, index) => ({
+    ...email,
+    received: rel(
+      atDay(personalOffsets[index] ?? -index - 1, personalHours[index] ?? 10),
+    ),
   }));
   const inboxes = {
     work: emails,
-    personal: [
-      {
-        from: "Ana Brandao",
-        address: "ana@example.com",
-        subject: "Dinner this weekend?",
-        snippet:
-          "Checking if Saturday still works. I can move the reservation later if your demo work runs long.",
-        tag: "personal",
-        suggested: "Reply · confirm Saturday",
-        received: rel(atDay(-1, 19)),
-      },
-      {
-        from: "Travel alerts",
-        address: "alerts@rail.pt",
-        subject: "Schedule change for your Lisbon trip",
-        snippet:
-          "Your return train has moved by 18 minutes. No action is required unless you want a refund.",
-        tag: "travel",
-        suggested: "Add calendar note",
-        received: rel(atDay(-4, 8)),
-      },
-      {
-        from: "GitHub",
-        address: "noreply@github.com",
-        subject: "Security advisory digest",
-        snippet:
-          "One dependency in a personal project has a moderate advisory. Review recommended patch versions.",
-        tag: "automation",
-        suggested: "Create task",
-        received: rel(atDay(-6, 10)),
-      },
-    ],
+    personal: personalEmails,
   };
 
-  const resources = RESOURCES.map((resource, index) => ({
+  const resources = seed.resources.map((resource, index) => ({
     ...resource,
-    lastChecked: rel(atDay(0, anchor.getHours(), anchor.getMinutes() - index * 7)),
+    lastChecked: rel(
+      atDay(0, anchor.getHours(), anchor.getMinutes() - index * 7),
+    ),
   }));
 
-  return { notes, kanban, calendarEvents, people, emails, inboxes, resources };
+  return {
+    notes,
+    groups: seed.groups,
+    edges: seed.edges,
+    kanban,
+    calendarEvents,
+    people,
+    emails,
+    inboxes,
+    resources,
+    assistantTranscript: seed.assistantTranscript,
+    assistantTools: seed.assistantTools,
+  };
 }
 
+const ALL_MODULE_KEYS = DEMO_MODULES.map((module) => module.key);
+
 export function DemoDashboard() {
+  const [persona, setPersona] = useState<PersonaKey>("founder");
+  const [enabledModules, setEnabledModules] = useState<Set<ModuleKey>>(
+    () => new Set(ALL_MODULE_KEYS),
+  );
+
+  const seed = PERSONA_SEEDS[persona];
+  const temporalData = useMemo(
+    () => buildTemporalDemoData(new Date(), seed),
+    [seed],
+  );
+
+  const visibleModules = useMemo(
+    () => DEMO_MODULES.filter((module) => enabledModules.has(module.key)),
+    [enabledModules],
+  );
+
+  const toggleModule = useCallback((key: ModuleKey) => {
+    setEnabledModules((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        if (next.size === 1) return current;
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
   return (
     <section
       id="demo"
@@ -353,43 +259,161 @@ export function DemoDashboard() {
           id="demo-heading"
           className="mt-3 max-w-4xl text-balance font-[var(--font-calistoga)] text-4xl leading-tight tracking-tight text-primary md:text-5xl"
         >
-          A live console. Toggle modules.{" "}
+          A live console. Built around you.{" "}
           <em className="italic text-accent-strong/90">
             Watch the ship change.
           </em>
         </h2>
-        <p className="mt-4 max-w-2xl text-muted-foreground">
-          Helm is a registry of modules. Disable one and it leaves the
-          navigation, the command palette, the assistant&apos;s toolset —
-          together.
-        </p>
+        <p className="mt-4 max-w-2xl text-muted-foreground">{seed.tagline}</p>
       </Reveal>
 
-      <Reveal
-        delay={120}
-        y={20}
-        className="mt-8 overflow-hidden rounded-xl border border-border/70 bg-card shadow-[0_30px_80px_-45px_rgba(48,54,48,0.45)]"
-      >
-        <DemoAppShell />
-      </Reveal>
-
-      <p
-        role="note"
-        className="mx-auto mt-3 max-w-2xl text-balance text-center text-[11px] leading-relaxed text-muted-foreground/80"
-      >
-        This is an illustrative preview, not the live product. Layouts, copy,
-        and data are mocked for presentation purposes — the shipping version may
-        differ in surface and behaviour.
-      </p>
+      <div className="mt-8 grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)] lg:gap-6">
+        <DemoControlsPanel
+          persona={persona}
+          onPersonaChange={setPersona}
+          enabledModules={enabledModules}
+          onToggleModule={toggleModule}
+        />
+        <div className="min-w-0">
+          <Reveal
+            delay={120}
+            y={20}
+            className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-[0_30px_80px_-45px_rgba(48,54,48,0.45)]"
+          >
+            <DemoAppShell
+              key={persona}
+              persona={persona}
+              data={temporalData}
+              modules={visibleModules}
+            />
+          </Reveal>
+          <p
+            role="note"
+            className="mx-auto mt-3 max-w-2xl text-balance text-center text-[11px] leading-relaxed text-muted-foreground/80"
+          >
+            This is an illustrative preview, not the live product. Layouts,
+            copy, and data are mocked for presentation purposes — the shipping
+            version may differ in surface and behaviour.
+          </p>
+        </div>
+      </div>
     </section>
   );
 }
 
-function DemoAppShell() {
+function DemoControlsPanel({
+  persona,
+  onPersonaChange,
+  enabledModules,
+  onToggleModule,
+}: {
+  persona: PersonaKey;
+  onPersonaChange: (next: PersonaKey) => void;
+  enabledModules: Set<ModuleKey>;
+  onToggleModule: (key: ModuleKey) => void;
+}) {
+  return (
+    <aside
+      aria-label="Demo configuration"
+      className="lg:sticky lg:top-24 lg:self-start"
+    >
+      <div className="rounded-xl border border-border/60 bg-surface/40 p-4 md:p-5">
+        <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+          Who are you?
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-1">
+          {PERSONAS.map((p) => {
+            const Icon = p.icon;
+            const active = persona === p.key;
+            return (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => onPersonaChange(p.key)}
+                aria-pressed={active}
+                className={cn(
+                  "group flex items-start gap-2.5 rounded-lg border px-3 py-2 text-left transition-all",
+                  active
+                    ? "border-accent-strong/60 bg-accent/30 text-primary shadow-sm"
+                    : "border-border/60 bg-background/40 text-muted-foreground hover:border-border hover:text-foreground",
+                )}
+              >
+                <Icon
+                  className={cn(
+                    "mt-0.5 size-4 shrink-0",
+                    active
+                      ? "text-accent-strong"
+                      : "text-muted-foreground group-hover:text-foreground",
+                  )}
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium leading-none">
+                    {p.label}
+                  </span>
+                  <span className="mt-1 block text-[11px] leading-snug text-muted-foreground/80">
+                    {p.blurb}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <p className="mt-5 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+          Modules
+        </p>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {DEMO_MODULES.map((module) => {
+            const Icon = module.icon;
+            const on = enabledModules.has(module.key);
+            return (
+              <button
+                key={module.key}
+                type="button"
+                onClick={() => onToggleModule(module.key)}
+                aria-pressed={on}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all",
+                  on
+                    ? "border-accent-strong/60 bg-accent/40 text-primary"
+                    : "border-border/60 bg-background/30 text-muted-foreground hover:border-border hover:text-foreground",
+                )}
+              >
+                <Icon className="size-3" />
+                {module.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-[10px] text-muted-foreground/70">
+          {enabledModules.size} of {DEMO_MODULES.length} modules enabled · at
+          least one stays on.
+        </p>
+      </div>
+    </aside>
+  );
+}
+
+function DemoAppShell({
+  persona: _persona,
+  data,
+  modules,
+}: {
+  persona: PersonaKey;
+  data: TemporalDemoData;
+  modules: DemoModule[];
+}) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [active, setActive] = useState<ModuleKey>("notes");
-  const temporalData = useMemo(() => buildTemporalDemoData(new Date()), []);
-  const activeModule = DEMO_MODULES.find((module) => module.key === active);
+  const initialActive = modules[0]?.key ?? "notes";
+  const [active, setActive] = useState<ModuleKey>(initialActive);
+
+  useEffect(() => {
+    if (!modules.some((module) => module.key === active)) {
+      setActive(modules[0]?.key ?? "notes");
+    }
+  }, [modules, active]);
+
+  const activeModule = modules.find((module) => module.key === active);
 
   return (
     <div className="h-[760px] max-h-[calc(100svh-2rem)] min-h-[620px] bg-background md:h-[780px]">
@@ -451,7 +475,7 @@ function DemoAppShell() {
             Workspace
           </p>
           <nav className="mt-2 space-y-1" aria-label="Demo modules">
-            {DEMO_MODULES.map((module) => {
+            {modules.map((module) => {
               const Icon = module.icon;
               const selected = active === module.key;
               return (
@@ -483,7 +507,7 @@ function DemoAppShell() {
           </nav>
         </aside>
 
-        <DemoModulePanel active={active} data={temporalData} />
+        <DemoModulePanel active={active} data={data} />
       </div>
     </div>
   );
@@ -496,7 +520,14 @@ function DemoModulePanel({
   active: ModuleKey;
   data: TemporalDemoData;
 }) {
-  if (active === "notes") return <NotesDemoPage notesData={data.notes} />;
+  if (active === "notes")
+    return (
+      <NotesDemoPage
+        notesData={data.notes}
+        groupsData={data.groups}
+        edgesData={data.edges}
+      />
+    );
   if (active === "kanban") return <KanbanDemoPage kanbanData={data.kanban} />;
   if (active === "calendar")
     return <CalendarDemoPage eventsData={data.calendarEvents} />;
@@ -504,14 +535,27 @@ function DemoModulePanel({
   if (active === "inbox") return <InboxDemoPage inboxesData={data.inboxes} />;
   if (active === "resources")
     return <ResourcesDemoPage resourcesData={data.resources} />;
-  return <AssistantDemoPage />;
+  return (
+    <AssistantDemoPage
+      transcript={data.assistantTranscript}
+      tools={data.assistantTools}
+    />
+  );
 }
 
-function NotesDemoPage({ notesData }: { notesData: INote[] }) {
+function NotesDemoPage({
+  notesData,
+  groupsData,
+  edgesData,
+}: {
+  notesData: INote[];
+  groupsData: INoteGroup[];
+  edgesData: INoteEdge[];
+}) {
   const [view, setView] = useState<View>("graph");
   const [notes, setNotes] = useState<INote[]>(notesData);
-  const [groups, setGroups] = useState<INoteGroup[]>(initialGroups);
-  const [edges, setEdges] = useState<INoteEdge[]>(initialEdges);
+  const [groups, setGroups] = useState<INoteGroup[]>(groupsData);
+  const [edges, setEdges] = useState<INoteEdge[]>(edgesData);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [selectedGroupFilters, setSelectedGroupFilters] = useState<string[]>(
@@ -1395,7 +1439,9 @@ function KanbanDemoPage({
                         <Input
                           autoFocus
                           value={draftTitle}
-                          onChange={(event) => setDraftTitle(event.target.value)}
+                          onChange={(event) =>
+                            setDraftTitle(event.target.value)
+                          }
                           onBlur={() => commitCardTitle(card.id)}
                           onKeyDown={(event) => {
                             if (event.key === "Enter") commitCardTitle(card.id);
@@ -1758,7 +1804,9 @@ function PeopleDemoPage({
       updatedAt: now,
     }));
     const visibleNames = new Set(filtered.map((person) => person.name));
-    const visiblePeople = people.filter((person) => visibleNames.has(person.name));
+    const visiblePeople = people.filter((person) =>
+      visibleNames.has(person.name),
+    );
     const visibleIds = new Set(visiblePeople.map((person) => person._id));
     const edges: IPersonEdge[] = [
       personEdge("pe-1", "person-0", "person-2", 0.8),
@@ -1767,7 +1815,9 @@ function PeopleDemoPage({
       personEdge("pe-4", "person-2", "person-3", 0.55),
       personEdge("pe-5", "person-3", "person-5", 0.6),
     ].filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to));
-    const visibleGroupIds = new Set(visiblePeople.flatMap((person) => person.groupIds));
+    const visibleGroupIds = new Set(
+      visiblePeople.flatMap((person) => person.groupIds),
+    );
     return {
       people,
       visiblePeople,
@@ -1776,16 +1826,24 @@ function PeopleDemoPage({
     };
   }, [filtered, peopleData]);
   const getPersonLabel = useCallback((person: IPerson) => person.name, []);
-  const getPersonGroupIds = useCallback((person: IPerson) => person.groupIds, []);
+  const getPersonGroupIds = useCallback(
+    (person: IPerson) => person.groupIds,
+    [],
+  );
   const getPersonColor = useCallback(
     (person: IPerson, scheme: "dark" | "light") =>
       classColor(person.name, scheme),
     [],
   );
-  const handleSelectGraphPerson = useCallback((person: IPerson) => {
-    const match = peopleData.find((candidate) => candidate.name === person.name);
-    if (match) setSelected(match);
-  }, [peopleData]);
+  const handleSelectGraphPerson = useCallback(
+    (person: IPerson) => {
+      const match = peopleData.find(
+        (candidate) => candidate.name === person.name,
+      );
+      if (match) setSelected(match);
+    },
+    [peopleData],
+  );
   const ignoreGraphGroup = useCallback(() => {}, []);
 
   return (
@@ -2143,7 +2201,13 @@ function ResourcesDemoPage({
   );
 }
 
-function AssistantDemoPage() {
+function AssistantDemoPage({
+  transcript,
+  tools,
+}: {
+  transcript: AssistantMessageSeed[];
+  tools: string[];
+}) {
   const [approvalState, setApprovalState] = useState<
     "idle" | "approving" | "approved"
   >("idle");
@@ -2165,7 +2229,7 @@ function AssistantDemoPage() {
       <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_18rem]">
         <section className="min-h-0 overflow-auto p-4">
           <div className="mx-auto max-w-3xl space-y-3">
-            {ASSISTANT_TRANSCRIPT.map((message, index) => (
+            {transcript.map((message, index) => (
               <div
                 key={index}
                 className={cn(
@@ -2228,14 +2292,7 @@ function AssistantDemoPage() {
             Tools
           </p>
           <div className="mt-3 space-y-1.5 font-mono text-xs">
-            {[
-              "notes.search",
-              "tasks.upsert",
-              "calendar.create",
-              "people.followup",
-              "email.send",
-              "resources.restart",
-            ].map((tool) => (
+            {tools.map((tool) => (
               <div
                 key={tool}
                 className="flex items-center justify-between rounded-md border bg-background px-2.5 py-1.5"
