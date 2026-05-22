@@ -267,7 +267,7 @@ export function DemoDashboard() {
         <p className="mt-4 max-w-2xl text-muted-foreground">{seed.tagline}</p>
       </Reveal>
 
-      <div className="mt-8 grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)] lg:gap-6">
+      <div className="mt-8 grid gap-4">
         <DemoControlsPanel
           persona={persona}
           onPersonaChange={setPersona}
