@@ -315,7 +315,6 @@ function DemoControlsPanel({
   return (
     <aside
       aria-label="Demo configuration"
-      className="lg:sticky lg:top-24 lg:self-start"
     >
       <div className="rounded-xl border border-border/60 bg-surface/40 p-4 md:p-5">
         <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
