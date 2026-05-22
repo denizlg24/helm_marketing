@@ -718,9 +718,6 @@ function NotesDemoPage({
           <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
             {filteredNotes.length} / {notes.length} · {groups.length} groups
           </span>
-          <Badge variant="outline" className="hidden h-5 text-[10px] sm:flex">
-            semantic off
-          </Badge>
         </div>
 
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 lg:flex-nowrap">
